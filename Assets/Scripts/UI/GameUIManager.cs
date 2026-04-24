@@ -32,9 +32,61 @@ public class GameUIManager : MonoBehaviour
 
     public void ClearParent(Transform parent)
     {
-        foreach (Transform child in parent)
+        for (int i = parent.childCount - 1; i >= 0; i--)
         {
-            Destroy(child.gameObject);
+            Destroy(parent.GetChild(i).gameObject);
+        }
+    }
+
+    public void BuildTimelineUI(Transform parent, PlayerState player)
+    {
+        ClearParent(parent);
+
+        for (int i = 0; i < player.timeline.Length; i++)
+        {
+            GameObject slotObj = Instantiate(timelineSlotPrefab, parent);
+            TimelineSlotUI slotUI = slotObj.GetComponent<TimelineSlotUI>();
+
+            string text = $"[{i + 1}] Empty";
+
+            if (!player.timeline[i].IsEmpty)
+            {
+                text = $"[{i + 1}] {player.timeline[i].currentCard.card.displayName}";
+            }
+
+            if (slotUI != null)
+            {
+                slotUI.SetText(text);
+            }
+        }
+    }
+
+    public void BuildPlayerHandUI(PlayerState player, GameManager gameManager)
+    {
+        ClearParent(player1HandParent);
+
+        for (int i = 0; i < player.hand.Count; i++)
+        {
+            GameObject cardObj = Instantiate(cardButtonPrefab, player1HandParent);
+            CardButtonUI cardUI = cardObj.GetComponent<CardButtonUI>();
+
+            if (cardUI != null)
+            {
+                cardUI.Setup(player.hand[i], gameManager, i);
+            }
+        }
+    }
+
+    public void SetRevealText(string p1Text, string p2Text)
+    {
+        if (player1RevealText != null)
+        {
+            player1RevealText.text = p1Text;
+        }
+
+        if (player2RevealText != null)
+        {
+            player2RevealText.text = p2Text;
         }
     }
 }

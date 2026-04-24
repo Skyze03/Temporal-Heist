@@ -17,6 +17,9 @@ public class GameManager : MonoBehaviour
     public int currentRound = 0;
     public int maxRounds = 12;
 
+    private CardData selectedPlayer1Card;
+    private int selectedPlayer1HandIndex = -1;
+
     private void Start()
     {
         StartNewGame();
@@ -31,11 +34,10 @@ public class GameManager : MonoBehaviour
         DealStartingHand(player2);
 
         currentRound = 0;
+        selectedPlayer1Card = null;
+        selectedPlayer1HandIndex = -1;
 
-        if (uiManager != null)
-        {
-            uiManager.SetRoundText(currentRound, maxRounds);
-        }
+        RefreshAllUI();
 
         Debug.Log("Game started.");
         Debug.Log(player1.playerId + " hand count: " + player1.hand.Count);
@@ -74,5 +76,40 @@ public class GameManager : MonoBehaviour
 
         Debug.LogError("Missing card data for rank: " + rank);
         return null;
+    }
+
+    public void OnPlayer1CardSelected(int handIndex)
+    {
+        if (handIndex < 0 || handIndex >= player1.hand.Count)
+        {
+            return;
+        }
+
+        selectedPlayer1HandIndex = handIndex;
+        selectedPlayer1Card = player1.hand[handIndex];
+
+        Debug.Log("Player 1 selected: " + selectedPlayer1Card.displayName);
+
+        if (uiManager != null)
+        {
+            uiManager.SetRevealText(
+                "P1 Selected: " + selectedPlayer1Card.displayName,
+                "P2 Selected: Waiting..."
+            );
+        }
+    }
+
+    private void RefreshAllUI()
+    {
+        if (uiManager == null)
+        {
+            return;
+        }
+
+        uiManager.SetRoundText(currentRound, maxRounds);
+        uiManager.BuildTimelineUI(uiManager.player1TimelineParent, player1);
+        uiManager.BuildTimelineUI(uiManager.player2TimelineParent, player2);
+        uiManager.BuildPlayerHandUI(player1, this);
+        uiManager.SetRevealText("P1 Selected: None", "P2 Selected: None");
     }
 }
