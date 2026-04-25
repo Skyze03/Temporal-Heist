@@ -49,6 +49,8 @@ public class GameUIManager : MonoBehaviour
             GameObject slotObj = Instantiate(timelineSlotPrefab, parent);
             TimelineSlotUI slotUI = slotObj.GetComponent<TimelineSlotUI>();
 
+            bool isLocked = gameManager.IsSlotLockedForDisplay(player, i);
+
             string text = $"[{i + 1}]";
 
             if (!player.timeline[i].IsEmpty)
@@ -57,12 +59,11 @@ public class GameUIManager : MonoBehaviour
             }
             else
             {
-                text += "\nEmpty";
+                text += isLocked ? "\nLocked" : "\nEmpty";
             }
 
             bool selectable = false;
 
-            // 只有我方 timeline 才允许点击选目标
             if (isPlayer1Timeline)
             {
                 selectable = gameManager.IsSlotSelectableForCurrentTurn(i);

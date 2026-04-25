@@ -16,11 +16,13 @@ public class GameManager : MonoBehaviour
     [Header("Game State")]
     public int currentRound = 0;
     public int maxRounds = 12;
+    public GamePhase currentPhase = GamePhase.TurnPlanning;
 
     private CardData selectedPlayer1Card;
     private int selectedPlayer1HandIndex = -1;
     private int selectedTargetSlotIndex = -1;
 
+    
     private void Start()
     {
         StartNewGame();
@@ -35,8 +37,13 @@ public class GameManager : MonoBehaviour
         DealStartingHand(player2);
 
         currentRound = 0;
+        currentPhase = GamePhase.TurnPlanning;
+        player1.coins = 0;
+        player2.coins = 0;
+
         selectedPlayer1Card = null;
         selectedPlayer1HandIndex = -1;
+        selectedTargetSlotIndex = -1;
 
         RefreshAllUI();
 
@@ -81,6 +88,11 @@ public class GameManager : MonoBehaviour
 
     public void OnPlayer1CardSelected(int handIndex)
     {
+        if (currentPhase != GamePhase.TurnPlanning)
+        {
+            return;
+        }
+
         if (handIndex < 0 || handIndex >= player1.hand.Count)
         {
             return;
@@ -103,6 +115,10 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    public bool IsSlotLockedForDisplay(PlayerState player, int slotIndex)
+    {
+        return IsSlotLockedByBarrier(player, slotIndex);
+    }
     private void RefreshAllUI()
     {
         if (uiManager == null)
@@ -110,19 +126,54 @@ public class GameManager : MonoBehaviour
             return;
         }
 
-        uiManager.SetRoundText(currentRound, maxRounds);
+        uiManager.SetRoundText(currentRound < maxRounds ? currentRound : maxRounds - 1, maxRounds);
         uiManager.BuildTimelineUI(uiManager.player2TimelineParent, player2, this, false);
         uiManager.BuildTimelineUI(uiManager.player1TimelineParent, player1, this, true);
         uiManager.BuildOpponentHandUI(player2.hand.Count);
         uiManager.BuildPlayerHandUI(player1, this);
 
-        string cardText = selectedPlayer1Card != null ? selectedPlayer1Card.displayName : "None";
-        string slotText = selectedTargetSlotIndex >= 0 ? $"Slot {selectedTargetSlotIndex + 1}" : "No Slot";
+        if (currentPhase == GamePhase.GameEnded)
+        {
+            string resultText;
 
-        uiManager.SetRevealText(
-            $"You: {cardText} -> {slotText}",
-            "Opponent: Hidden"
-        );
+            if (player1.coins > player2.coins)
+            {
+                resultText = "You Win!";
+            }
+            else if (player2.coins > player1.coins)
+            {
+                resultText = "Opponent Wins!";
+            }
+            else
+            {
+                resultText = "Draw!";
+            }
+
+            uiManager.SetRevealText(
+                $"You: {player1.coins} coins",
+                $"Opponent: {player2.coins} coins\n{resultText}"
+            );
+        }
+        else
+        {
+            string cardText = selectedPlayer1Card != null ? selectedPlayer1Card.displayName : "None";
+            string slotText = selectedTargetSlotIndex >= 0 ? $"Slot {selectedTargetSlotIndex + 1}" : "No Slot";
+
+            if (currentPhase == GamePhase.FinalResolution)
+            {
+                uiManager.SetRevealText(
+                    "All turns complete",
+                    "Press Resolve to score"
+                );
+            }
+            else
+            {
+                uiManager.SetRevealText(
+                    $"You: {cardText} -> {slotText}",
+                    "Opponent: Hidden"
+                );
+            }
+        }
     }
 
     public bool IsSlotSelectableForCurrentTurn(int slotIndex)
@@ -138,18 +189,21 @@ public class GameManager : MonoBehaviour
             return false;
         }
 
-        // 当前回合对应的 slot（0-based）
+        // 如果这个 slot 被 Barrier 锁住，直接不可选
+        if (IsSlotLockedByBarrier(player1, slotIndex))
+        {
+            return false;
+        }
+
         int currentTurnSlot = currentRound;
 
-        // 如果没有可用 Time Point：
-        // 只能放当前回合 slot
+        // 没有可用 Time Point：只能选当前回合 slot
         if (!HasUsableTimePoint(player1))
         {
             return slotIndex == currentTurnSlot;
         }
 
-        // 如果有可用 Time Point：
-        // 可以放 earliest usable Time Point ~ current round 之间
+        // 有可用 Time Point：可选 earliest usable TP ~ current round
         int earliestTimePoint = GetEarliestUsableTimePointSlot(player1);
 
         return slotIndex >= earliestTimePoint && slotIndex <= currentTurnSlot;
@@ -160,6 +214,13 @@ public class GameManager : MonoBehaviour
         if (card == null) return false;
 
         return card.effectType == CardEffectType.SetTimePoint;
+    }
+
+    private bool IsBarrierCard(CardData card)
+    {
+        if (card == null) return false;
+
+        return card.effectType == CardEffectType.Barrier;
     }
 
     private void RebuildTimePointSlots(PlayerState player)
@@ -180,6 +241,24 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private int GetEarliestBarrierSlot(PlayerState player)
+    {
+        for (int i = 0; i < player.timeline.Length; i++)
+        {
+            if (!player.timeline[i].IsEmpty)
+            {
+                CardData card = player.timeline[i].currentCard.card;
+
+                if (IsBarrierCard(card))
+                {
+                    return i;
+                }
+            }
+        }
+
+        return -1;
+    }
+
     private int GetEarliestUsableTimePointSlot(PlayerState player)
     {
         if (player.timePointSlots == null || player.timePointSlots.Count == 0)
@@ -187,17 +266,26 @@ public class GameManager : MonoBehaviour
             return -1;
         }
 
-        int earliest = player.timePointSlots[0];
+        int earliestBarrier = GetEarliestBarrierSlot(player);
+        int best = -1;
 
-        for (int i = 1; i < player.timePointSlots.Count; i++)
+        for (int i = 0; i < player.timePointSlots.Count; i++)
         {
-            if (player.timePointSlots[i] < earliest)
+            int tpSlot = player.timePointSlots[i];
+
+            // 如果有 Barrier，则 Barrier 之前的 Time Point 不再 usable
+            if (earliestBarrier >= 0 && tpSlot < earliestBarrier)
             {
-                earliest = player.timePointSlots[i];
+                continue;
+            }
+
+            if (best == -1 || tpSlot < best)
+            {
+                best = tpSlot;
             }
         }
 
-        return earliest;
+        return best;
     }
 
     private bool HasUsableTimePoint(PlayerState player)
@@ -205,8 +293,38 @@ public class GameManager : MonoBehaviour
         return GetEarliestUsableTimePointSlot(player) >= 0;
     }
 
+    private bool HasUsableTimePointAtResolution(PlayerState player, int currentResolvingSlot)
+    {
+        int earliestBarrier = GetEarliestBarrierSlot(player);
+
+        for (int i = 0; i <= currentResolvingSlot; i++)
+        {
+            if (!player.timeline[i].IsEmpty)
+            {
+                CardData card = player.timeline[i].currentCard.card;
+
+                if (IsTimePointCard(card))
+                {
+                    // 如果有 barrier，则 barrier 之前的 time point 不算 usable
+                    if (earliestBarrier >= 0 && i < earliestBarrier)
+                    {
+                        continue;
+                    }
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
     public void OnPlayer1TargetSlotSelected(int slotIndex)
     {
+        if (currentPhase != GamePhase.TurnPlanning)
+        {
+            return;
+        }
+
         if (!IsSlotSelectableForCurrentTurn(slotIndex))
         {
             return;
@@ -224,6 +342,19 @@ public class GameManager : MonoBehaviour
                 "Opponent: Hidden"
             );
         }
+    }
+
+    private bool IsSlotLockedByBarrier(PlayerState player, int slotIndex)
+    {
+        int earliestBarrier = GetEarliestBarrierSlot(player);
+
+        if (earliestBarrier < 0)
+        {
+            return false;
+        }
+
+        // Barrier 之前的 slot 被锁
+        return slotIndex < earliestBarrier;
     }
 
     public void ConfirmPlayer1Placement()
@@ -263,6 +394,12 @@ public class GameManager : MonoBehaviour
         // 回合前进
         currentRound++;
 
+        // 如果已经完成 12 回合，进入最终结算阶段
+        if (currentRound >= maxRounds)
+        {
+            currentPhase = GamePhase.FinalResolution;
+        }
+
         // 清空本回合选择
         selectedPlayer1Card = null;
         selectedPlayer1HandIndex = -1;
@@ -294,5 +431,102 @@ public class GameManager : MonoBehaviour
         RebuildTimePointSlots(player2);
 
         player2.hand.RemoveAt(randomIndex);
+    }
+
+    public void OnMainActionButtonPressed()
+    {
+        if (currentPhase == GamePhase.TurnPlanning)
+        {
+            ConfirmPlayer1Placement();
+        }
+        else if (currentPhase == GamePhase.FinalResolution)
+        {
+            ResolveEntireGame();
+        }
+    }
+
+    private void ResolveSingleCardAtSlot(PlayerState player, int slotIndex)
+    {
+        if (player.timeline[slotIndex].IsEmpty)
+        {
+            return;
+        }
+
+        CardData card = player.timeline[slotIndex].currentCard.card;
+
+        switch (card.effectType)
+        {
+            case CardEffectType.GainCoins:
+                player.coins += 5;
+                Debug.Log($"{player.playerId} gains +5 from slot {slotIndex + 1}");
+                break;
+
+            case CardEffectType.Lottery:
+                if (HasUsableTimePointAtResolution(player, slotIndex))
+                {
+                    player.coins += 10;
+                    Debug.Log($"{player.playerId} gains +10 from Lottery at slot {slotIndex + 1}");
+                }
+                else
+                {
+                    Debug.Log($"{player.playerId} Lottery failed at slot {slotIndex + 1}");
+                }
+                break;
+
+            case CardEffectType.SetTimePoint:
+            case CardEffectType.Barrier:
+            case CardEffectType.None:
+                // 这些暂时不直接加分
+                break;
+
+            case CardEffectType.Rob:
+            case CardEffectType.Camera:
+            case CardEffectType.Court:
+            case CardEffectType.Joker:
+                // 暂时未实现
+                Debug.Log($"{player.playerId} has unresolved effect {card.effectType} at slot {slotIndex + 1}");
+                break;
+        }
+    }
+
+    private void ResolveEntireGame()
+    {
+        if (currentPhase != GamePhase.FinalResolution)
+        {
+            return;
+        }
+
+        Debug.Log("=== FINAL RESOLUTION START ===");
+
+        player1.coins = 0;
+        player2.coins = 0;
+
+        for (int slotIndex = 0; slotIndex < maxRounds; slotIndex++)
+        {
+            Debug.Log($"--- Resolving slot {slotIndex + 1} ---");
+
+            ResolveSingleCardAtSlot(player1, slotIndex);
+            ResolveSingleCardAtSlot(player2, slotIndex);
+        }
+
+        currentPhase = GamePhase.GameEnded;
+
+        Debug.Log($"Player 1 coins: {player1.coins}");
+        Debug.Log($"Player 2 coins: {player2.coins}");
+
+        if (player1.coins > player2.coins)
+        {
+            Debug.Log("Player 1 wins!");
+        }
+        else if (player2.coins > player1.coins)
+        {
+            Debug.Log("Player 2 wins!");
+        }
+        else
+        {
+            Debug.Log("Draw!");
+        }
+
+        RefreshAllUI();
     }
 }
