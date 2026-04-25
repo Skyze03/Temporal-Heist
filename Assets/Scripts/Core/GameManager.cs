@@ -127,13 +127,82 @@ public class GameManager : MonoBehaviour
 
     public bool IsSlotSelectableForCurrentTurn(int slotIndex)
     {
-        // 先做最基础版本：
-        // 当前 round 为 0 时只能选 slot 0
-        // 当前 round 为 1 时能选 slot 0 或 1
-        // 当前 round 为 2 时能选 0,1,2
-        // 以后再加 barrier / time point 的限制
+        if (slotIndex < 0 || slotIndex >= player1.timeline.Length)
+        {
+            return false;
+        }
 
-        return slotIndex >= 0 && slotIndex <= currentRound;
+        // 还没选牌时，不允许选 slot
+        if (selectedPlayer1Card == null)
+        {
+            return false;
+        }
+
+        // 当前回合对应的 slot（0-based）
+        int currentTurnSlot = currentRound;
+
+        // 如果没有可用 Time Point：
+        // 只能放当前回合 slot
+        if (!HasUsableTimePoint(player1))
+        {
+            return slotIndex == currentTurnSlot;
+        }
+
+        // 如果有可用 Time Point：
+        // 可以放 earliest usable Time Point ~ current round 之间
+        int earliestTimePoint = GetEarliestUsableTimePointSlot(player1);
+
+        return slotIndex >= earliestTimePoint && slotIndex <= currentTurnSlot;
+    }
+
+    private bool IsTimePointCard(CardData card)
+    {
+        if (card == null) return false;
+
+        return card.effectType == CardEffectType.SetTimePoint;
+    }
+
+    private void RebuildTimePointSlots(PlayerState player)
+    {
+        player.timePointSlots.Clear();
+
+        for (int i = 0; i < player.timeline.Length; i++)
+        {
+            if (!player.timeline[i].IsEmpty)
+            {
+                CardData card = player.timeline[i].currentCard.card;
+
+                if (IsTimePointCard(card))
+                {
+                    player.timePointSlots.Add(i);
+                }
+            }
+        }
+    }
+
+    private int GetEarliestUsableTimePointSlot(PlayerState player)
+    {
+        if (player.timePointSlots == null || player.timePointSlots.Count == 0)
+        {
+            return -1;
+        }
+
+        int earliest = player.timePointSlots[0];
+
+        for (int i = 1; i < player.timePointSlots.Count; i++)
+        {
+            if (player.timePointSlots[i] < earliest)
+            {
+                earliest = player.timePointSlots[i];
+            }
+        }
+
+        return earliest;
+    }
+
+    private bool HasUsableTimePoint(PlayerState player)
+    {
+        return GetEarliestUsableTimePointSlot(player) >= 0;
     }
 
     public void OnPlayer1TargetSlotSelected(int slotIndex)
@@ -165,6 +234,12 @@ public class GameManager : MonoBehaviour
             return;
         }
 
+        if (!IsSlotSelectableForCurrentTurn(selectedTargetSlotIndex))
+        {
+            Debug.Log("Cannot confirm: selected slot is not legal.");
+            return;
+        }
+
         // 创建运行时牌
         PlayedCard playedCard = new PlayedCard(
             selectedPlayer1Card,
@@ -173,13 +248,16 @@ public class GameManager : MonoBehaviour
             player1
         );
 
-        // 放到目标时间线格
+        // 放到目标时间线格（允许覆盖旧牌）
         player1.timeline[selectedTargetSlotIndex].currentCard = playedCard;
+
+        // 关键：根据当前 timeline 真实内容重建 time point 列表
+        RebuildTimePointSlots(player1);
 
         // 从手牌移除
         player1.hand.RemoveAt(selectedPlayer1HandIndex);
 
-        // 先让 opponent 自动出一张（最基础版本）
+        // 对手自动出一张
         AutoPlayForPlayer2();
 
         // 回合前进
@@ -211,6 +289,10 @@ public class GameManager : MonoBehaviour
         );
 
         player2.timeline[opponentSlot].currentCard = playedCard;
+
+        // 关键：根据当前 timeline 真实内容重建 time point 列表
+        RebuildTimePointSlots(player2);
+
         player2.hand.RemoveAt(randomIndex);
     }
 }
