@@ -222,6 +222,12 @@ public class GameManager : MonoBehaviour
 
         return card.effectType == CardEffectType.Barrier;
     }
+    private bool IsRobCard(CardData card)
+    {
+        if (card == null) return false;
+
+        return card.effectType == CardEffectType.Rob;
+    }
 
     private void RebuildTimePointSlots(PlayerState player)
     {
@@ -444,8 +450,95 @@ public class GameManager : MonoBehaviour
             ResolveEntireGame();
         }
     }
+    private int GetBaseCoinGainForCardAtSlot(PlayerState player, int slotIndex)
+    {
+        if (player.timeline[slotIndex].IsEmpty)
+        {
+            return 0;
+        }
 
-    private void ResolveSingleCardAtSlot(PlayerState player, int slotIndex)
+        CardData card = player.timeline[slotIndex].currentCard.card;
+
+        switch (card.effectType)
+        {
+            case CardEffectType.GainCoins:
+                Debug.Log($"{player.playerId} base gain +5 from slot {slotIndex + 1}");
+                return 5;
+
+            case CardEffectType.Lottery:
+                if (HasUsableTimePointAtResolution(player, slotIndex))
+                {
+                    Debug.Log($"{player.playerId} base gain +10 from Lottery at slot {slotIndex + 1}");
+                    return 10;
+                }
+                else
+                {
+                    Debug.Log($"{player.playerId} Lottery failed at slot {slotIndex + 1}");
+                    return 0;
+                }
+
+            case CardEffectType.SetTimePoint:
+            case CardEffectType.Barrier:
+            case CardEffectType.None:
+                return 0;
+
+            case CardEffectType.Rob:
+            case CardEffectType.Camera:
+            case CardEffectType.Court:
+            case CardEffectType.Joker:
+                return 0;
+        }
+
+        return 0;
+    }
+    
+    private void ResolveSingleSlot(int slotIndex)
+    {
+        Debug.Log($"--- Resolving slot {slotIndex + 1} ---");
+
+        SlotResolutionData slotData = new SlotResolutionData();
+
+        // Step 1: 先计算双方这个 slot 的基础收益
+        slotData.player1SlotGain = GetBaseCoinGainForCardAtSlot(player1, slotIndex);
+        slotData.player2SlotGain = GetBaseCoinGainForCardAtSlot(player2, slotIndex);
+
+        // Step 2: 处理 Player 1 的 Rob
+        if (!player1.timeline[slotIndex].IsEmpty)
+        {
+            CardData p1Card = player1.timeline[slotIndex].currentCard.card;
+
+            if (IsRobCard(p1Card))
+            {
+                int stolen = slotData.player2SlotGain;
+                slotData.player2SlotGain -= stolen;
+                slotData.player1SlotGain += stolen;
+
+                Debug.Log($"Player 1 robs {stolen} coins from Player 2 at slot {slotIndex + 1}");
+            }
+        }
+
+        // Step 3: 处理 Player 2 的 Rob
+        if (!player2.timeline[slotIndex].IsEmpty)
+        {
+            CardData p2Card = player2.timeline[slotIndex].currentCard.card;
+
+            if (IsRobCard(p2Card))
+            {
+                int stolen = slotData.player1SlotGain;
+                slotData.player1SlotGain -= stolen;
+                slotData.player2SlotGain += stolen;
+
+                Debug.Log($"Player 2 robs {stolen} coins from Player 1 at slot {slotIndex + 1}");
+            }
+        }
+
+        // Step 4: 把这个 slot 的收益写入总 coins
+        player1.coins += slotData.player1SlotGain;
+        player2.coins += slotData.player2SlotGain;
+
+        Debug.Log($"Slot {slotIndex + 1} result -> P1 +{slotData.player1SlotGain}, P2 +{slotData.player2SlotGain}");
+    }
+    /*private void ResolveSingleCardAtSlot(PlayerState player, int slotIndex)
     {
         if (player.timeline[slotIndex].IsEmpty)
         {
@@ -487,7 +580,7 @@ public class GameManager : MonoBehaviour
                 Debug.Log($"{player.playerId} has unresolved effect {card.effectType} at slot {slotIndex + 1}");
                 break;
         }
-    }
+    }*/
 
     private void ResolveEntireGame()
     {
@@ -503,10 +596,7 @@ public class GameManager : MonoBehaviour
 
         for (int slotIndex = 0; slotIndex < maxRounds; slotIndex++)
         {
-            Debug.Log($"--- Resolving slot {slotIndex + 1} ---");
-
-            ResolveSingleCardAtSlot(player1, slotIndex);
-            ResolveSingleCardAtSlot(player2, slotIndex);
+            ResolveSingleSlot(slotIndex);
         }
 
         currentPhase = GamePhase.GameEnded;
