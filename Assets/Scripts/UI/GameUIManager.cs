@@ -40,7 +40,7 @@ public class GameUIManager : MonoBehaviour
         }
     }
 
-    public void BuildTimelineUI(Transform parent, PlayerState player)
+    public void BuildTimelineUI(Transform parent, PlayerState player, GameManager gameManager, bool isPlayer1Timeline)
     {
         ClearParent(parent);
 
@@ -60,9 +60,17 @@ public class GameUIManager : MonoBehaviour
                 text += "\nEmpty";
             }
 
+            bool selectable = false;
+
+            // 只有我方 timeline 才允许点击选目标
+            if (isPlayer1Timeline)
+            {
+                selectable = gameManager.IsSlotSelectableForCurrentTurn(i);
+            }
+
             if (slotUI != null)
             {
-                slotUI.SetText(text);
+                slotUI.Setup(text, gameManager, i, selectable);
             }
         }
     }

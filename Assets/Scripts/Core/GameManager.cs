@@ -19,6 +19,7 @@ public class GameManager : MonoBehaviour
 
     private CardData selectedPlayer1Card;
     private int selectedPlayer1HandIndex = -1;
+    private int selectedTargetSlotIndex = -1;
 
     private void Start()
     {
@@ -88,14 +89,17 @@ public class GameManager : MonoBehaviour
         selectedPlayer1HandIndex = handIndex;
         selectedPlayer1Card = player1.hand[handIndex];
 
-        Debug.Log("Player 1 selected: " + selectedPlayer1Card.displayName);
+        Debug.Log("Player 1 selected card: " + selectedPlayer1Card.displayName);
 
         if (uiManager != null)
         {
+            string slotText = selectedTargetSlotIndex >= 0 ? $"Slot {selectedTargetSlotIndex + 1}" : "No Slot";
             uiManager.SetRevealText(
-                "You: " + selectedPlayer1Card.displayName,
-                "Opponent: Waiting..."
+                $"You: {selectedPlayer1Card.displayName} -> {slotText}",
+                "Opponent: Hidden"
             );
+
+            RefreshAllUI();
         }
     }
 
@@ -107,10 +111,106 @@ public class GameManager : MonoBehaviour
         }
 
         uiManager.SetRoundText(currentRound, maxRounds);
-        uiManager.BuildTimelineUI(uiManager.player2TimelineParent, player2);
-        uiManager.BuildTimelineUI(uiManager.player1TimelineParent, player1);
+        uiManager.BuildTimelineUI(uiManager.player2TimelineParent, player2, this, false);
+        uiManager.BuildTimelineUI(uiManager.player1TimelineParent, player1, this, true);
         uiManager.BuildOpponentHandUI(player2.hand.Count);
         uiManager.BuildPlayerHandUI(player1, this);
-        uiManager.SetRevealText("You: None", "Opponent: Hidden");
+
+        string cardText = selectedPlayer1Card != null ? selectedPlayer1Card.displayName : "None";
+        string slotText = selectedTargetSlotIndex >= 0 ? $"Slot {selectedTargetSlotIndex + 1}" : "No Slot";
+
+        uiManager.SetRevealText(
+            $"You: {cardText} -> {slotText}",
+            "Opponent: Hidden"
+        );
+    }
+
+    public bool IsSlotSelectableForCurrentTurn(int slotIndex)
+    {
+        // 先做最基础版本：
+        // 当前 round 为 0 时只能选 slot 0
+        // 当前 round 为 1 时能选 slot 0 或 1
+        // 当前 round 为 2 时能选 0,1,2
+        // 以后再加 barrier / time point 的限制
+
+        return slotIndex >= 0 && slotIndex <= currentRound;
+    }
+
+    public void OnPlayer1TargetSlotSelected(int slotIndex)
+    {
+        if (!IsSlotSelectableForCurrentTurn(slotIndex))
+        {
+            return;
+        }
+
+        selectedTargetSlotIndex = slotIndex;
+
+        Debug.Log("Player 1 target slot selected: " + (slotIndex + 1));
+
+        if (uiManager != null)
+        {
+            string cardText = selectedPlayer1Card != null ? selectedPlayer1Card.displayName : "None";
+            uiManager.SetRevealText(
+                $"You: {cardText} -> Slot {slotIndex + 1}",
+                "Opponent: Hidden"
+            );
+        }
+    }
+
+    public void ConfirmPlayer1Placement()
+    {
+        if (selectedPlayer1Card == null || selectedPlayer1HandIndex < 0 || selectedTargetSlotIndex < 0)
+        {
+            Debug.Log("Cannot confirm: card or slot not selected.");
+            return;
+        }
+
+        // 创建运行时牌
+        PlayedCard playedCard = new PlayedCard(
+            selectedPlayer1Card,
+            currentRound,
+            selectedTargetSlotIndex,
+            player1
+        );
+
+        // 放到目标时间线格
+        player1.timeline[selectedTargetSlotIndex].currentCard = playedCard;
+
+        // 从手牌移除
+        player1.hand.RemoveAt(selectedPlayer1HandIndex);
+
+        // 先让 opponent 自动出一张（最基础版本）
+        AutoPlayForPlayer2();
+
+        // 回合前进
+        currentRound++;
+
+        // 清空本回合选择
+        selectedPlayer1Card = null;
+        selectedPlayer1HandIndex = -1;
+        selectedTargetSlotIndex = -1;
+
+        RefreshAllUI();
+    }
+
+    private void AutoPlayForPlayer2()
+    {
+        if (player2.hand.Count == 0) return;
+
+        int randomIndex = Random.Range(0, player2.hand.Count);
+        CardData opponentCard = player2.hand[randomIndex];
+
+        // 最基础版本：对手总是放在当前 round 对应的 slot
+        int opponentSlot = currentRound;
+
+        PlayedCard playedCard = new PlayedCard(
+            opponentCard,
+            currentRound,
+            opponentSlot,
+            player2
+        );
+
+        player2.timeline[opponentSlot].currentCard = playedCard;
+        player2.hand.RemoveAt(randomIndex);
     }
 }

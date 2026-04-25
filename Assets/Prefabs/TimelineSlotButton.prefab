@@ -293,3 +293,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::TimelineSlotUI
   labelText: {fileID: 5312399957537674664}
+  button: {fileID: 6759023555645188176}
