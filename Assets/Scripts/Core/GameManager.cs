@@ -294,7 +294,7 @@ public class GameManager : MonoBehaviour
 
         return -1;
     }*/
-    private int GetGlobalEarliestBarrierSlot()
+    /*private int GetGlobalEarliestBarrierSlot()
     {
         int best = -1;
 
@@ -323,8 +323,67 @@ public class GameManager : MonoBehaviour
         }
 
         return best;
-    }
+    }*/
+    private int GetLatestGlobalBarrierSlot()
+    {
+        int best = -1;
 
+        for (int i = 0; i < maxRounds; i++)
+        {
+            bool player1HasBarrier = false;
+            bool player2HasBarrier = false;
+
+            if (!player1.timeline[i].IsEmpty)
+            {
+                CardData p1Card = player1.timeline[i].currentCard.card;
+                player1HasBarrier = IsBarrierCard(p1Card);
+            }
+
+            if (!player2.timeline[i].IsEmpty)
+            {
+                CardData p2Card = player2.timeline[i].currentCard.card;
+                player2HasBarrier = IsBarrierCard(p2Card);
+            }
+
+            if (player1HasBarrier || player2HasBarrier)
+            {
+                best = i;
+            }
+        }
+
+        return best;
+    }
+    private int GetLatestGlobalBarrierSlotUpTo(int maxSlotInclusive)
+    {
+        int best = -1;
+
+        int cappedMax = Mathf.Min(maxSlotInclusive, maxRounds - 1);
+
+        for (int i = 0; i <= cappedMax; i++)
+        {
+            bool player1HasBarrier = false;
+            bool player2HasBarrier = false;
+
+            if (!player1.timeline[i].IsEmpty)
+            {
+                CardData p1Card = player1.timeline[i].currentCard.card;
+                player1HasBarrier = IsBarrierCard(p1Card);
+            }
+
+            if (!player2.timeline[i].IsEmpty)
+            {
+                CardData p2Card = player2.timeline[i].currentCard.card;
+                player2HasBarrier = IsBarrierCard(p2Card);
+            }
+
+            if (player1HasBarrier || player2HasBarrier)
+            {
+                best = i;
+            }
+        }
+
+        return best;
+    }
     private int GetEarliestUsableTimePointSlot(PlayerState player)
     {
         if (player.timePointSlots == null || player.timePointSlots.Count == 0)
@@ -332,15 +391,15 @@ public class GameManager : MonoBehaviour
             return -1;
         }
 
-        int globalEarliestBarrier = GetGlobalEarliestBarrierSlot();
+        int latestGlobalBarrier = GetLatestGlobalBarrierSlot();
         int best = -1;
 
         for (int i = 0; i < player.timePointSlots.Count; i++)
         {
             int tpSlot = player.timePointSlots[i];
 
-            // 全局 Barrier 之前的 Time Point 都不再 usable
-            if (globalEarliestBarrier >= 0 && tpSlot < globalEarliestBarrier)
+            // 最新 Barrier 之前的 Time Point 都不再 usable
+            if (latestGlobalBarrier >= 0 && tpSlot < latestGlobalBarrier)
             {
                 continue;
             }
@@ -400,7 +459,7 @@ public class GameManager : MonoBehaviour
     }*/
     private bool HasUsableTimePointAtResolution(PlayerState player, int currentResolvingSlot)
     {
-        int earliestBarrier = GetGlobalEarliestBarrierSlot();
+        int latestBarrierUpToCurrentStep = GetLatestGlobalBarrierSlotUpTo(currentResolvingSlot);
 
         for (int i = 0; i <= currentResolvingSlot; i++)
         {
@@ -410,8 +469,8 @@ public class GameManager : MonoBehaviour
 
                 if (IsTimePointCard(card))
                 {
-                    // 如果有 barrier，则 barrier 之前的 time point 不算 usable
-                    if (earliestBarrier >= 0 && i < earliestBarrier)
+                    // 只考虑当前 resolve step 以及之前已经发生的 Barrier
+                    if (latestBarrierUpToCurrentStep >= 0 && i < latestBarrierUpToCurrentStep)
                     {
                         continue;
                     }
@@ -473,15 +532,15 @@ public class GameManager : MonoBehaviour
 
     private bool IsSlotLockedByBarrier(PlayerState player, int slotIndex)
     {
-        int globalEarliestBarrier = GetGlobalEarliestBarrierSlot();
+        int latestGlobalBarrier = GetLatestGlobalBarrierSlot();
 
-        if (globalEarliestBarrier < 0)
+        if (latestGlobalBarrier < 0)
         {
             return false;
         }
 
-        // 全局 Barrier 之前的 slot 对所有玩家都被锁
-        return slotIndex < globalEarliestBarrier;
+        // 最新 Barrier 之前的所有 slot 都被锁
+        return slotIndex < latestGlobalBarrier;
     }
 
     public void ConfirmPlayer1Placement()
