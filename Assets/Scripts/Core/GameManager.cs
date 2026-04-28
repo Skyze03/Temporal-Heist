@@ -202,30 +202,34 @@ public class GameManager : MonoBehaviour
             return false;
         }
 
+        int currentTurnSlot = currentRound;
+
+        // 未来 slot 永远不可选
+        if (slotIndex > currentTurnSlot)
+        {
+            return false;
+        }
+
         // Court 强制下一回合目标 slot：优先级最高
         if (HasForcedNextSlot(player1))
         {
             return slotIndex == player1.forcedNextSlotIndex;
         }
 
-        // 如果这个 slot 被 Barrier 锁住，直接不可选
+        // Barrier 之前的 slot 直接不可选
         if (IsSlotLockedByBarrier(player1, slotIndex))
         {
             return false;
         }
 
-        int currentTurnSlot = currentRound;
-
-        // 没有可用 Time Point：只能选当前回合 slot
-        if (!HasUsableTimePoint(player1))
+        // 当前回合对应的 slot 永远可以正常打
+        if (slotIndex == currentTurnSlot)
         {
-            return slotIndex == currentTurnSlot;
+            return true;
         }
 
-        // 有可用 Time Point：可选 earliest usable TP ~ current round
-        int earliestTimePoint = GetEarliestUsableTimePointSlot(player1);
-
-        return slotIndex >= earliestTimePoint && slotIndex <= currentTurnSlot;
+        // 如果要回填到过去 slot，必须存在一个“更早的可用 Time Point”
+        return HasUsableTimePointBeforeSlot(player1, slotIndex);
     }
 
     private bool IsTimePointCard(CardData card)
@@ -413,6 +417,36 @@ public class GameManager : MonoBehaviour
         return best;
     }
 
+    private bool HasUsableTimePointBeforeSlot(PlayerState player, int targetSlot)
+    {
+        if (player.timePointSlots == null || player.timePointSlots.Count == 0)
+        {
+            return false;
+        }
+
+        int latestGlobalBarrier = GetLatestGlobalBarrierSlot();
+
+        for (int i = 0; i < player.timePointSlots.Count; i++)
+        {
+            int tpSlot = player.timePointSlots[i];
+
+            // 必须严格早于目标 slot
+            if (tpSlot >= targetSlot)
+            {
+                continue;
+            }
+
+            // 被全局 Barrier 挡在前面的 TP 不可用
+            if (latestGlobalBarrier >= 0 && tpSlot < latestGlobalBarrier)
+            {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
     private bool HasUsableTimePoint(PlayerState player)
     {
         return GetEarliestUsableTimePointSlot(player) >= 0;
